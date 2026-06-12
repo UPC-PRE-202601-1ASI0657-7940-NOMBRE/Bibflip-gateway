@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -19,16 +20,25 @@ import java.util.List;
 @Component
 public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
 
-    private static final List<String> EXCLUDED_PATHS = List.of("/api/v1/authentication/sign-in", "/api/v1/authentication/sign-up", "/api/v1/roles");
+    private static final List<String> EXCLUDED_PATHS = List.of(
+            "/api/v1/authentication/sign-in",
+            "/api/v1/authentication/sign-up",
+            "/api/v1/roles"
+    );
 
     @Value("${authorization.jwt.secret}")
     private String secret;
 
     @Override
-    public Mono<Void> filter(ServerWebExchange exchange, org.springframework.cloud.gateway.filter.GatewayFilterChain chain) {
+    public Mono<Void> filter(ServerWebExchange exchange,
+                             org.springframework.cloud.gateway.filter.GatewayFilterChain chain) {
+
         String path = exchange.getRequest().getURI().getPath();
 
-        // Verificar si la ruta actual está excluida
+        if (exchange.getRequest().getMethod() == org.springframework.http.HttpMethod.OPTIONS) {
+            return chain.filter(exchange);
+        }
+
         if (EXCLUDED_PATHS.stream().anyMatch(path::equals)) {
             return chain.filter(exchange);
         }
@@ -43,7 +53,6 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
 
         String token = authHeader.substring(7);
 
-        // Validar el token
         if (!validateToken(token)) {
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
@@ -60,16 +69,15 @@ public class AuthenticationGlobalFilter implements GlobalFilter, Ordered {
                     .parseClaimsJws(token)
                     .getBody();
 
-
-            // Validar la expiración del token
             return !claims.getExpiration().before(new Date());
+
         } catch (SignatureException | IllegalArgumentException e) {
-            return false; // Token inválido
+            return false;
         }
     }
 
     @Override
     public int getOrder() {
-        return -1; // Prioridad alta para que se ejecute antes de otros filtros
+        return -1;
     }
 }
